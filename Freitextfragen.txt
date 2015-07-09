@@ -1,0 +1,91 @@
+﻿Aufgabe 1:
+
+
+Sei der Programm-Ausschnitt
+
+HWND hWnd = CreateWindow ();
+ShowWindow(hWnd);
+UpdateWindow(hWnd);
+
+Teil des Moduls g. 
+Dann:
+
+GOT-Beschreibung im Modul-Header von g (Position ist hier frei gewählt):
+
+Position	Name		Typ
+...
+24		"CreateWindow"	Funktion
+25		"ShowWindow"	Funktion
+26		"UpdateWindow"	Funktion
+...
+
+GOT im Speicher des importierenden Moduls (mit absoluten Adressen):
+
+Position	Adresse
+...
+24		0x0000BC2F + Adresse des Modulanfangs von user32.dll (0x00700100) = 0x0070BD2F
+25		0x0000BC62 + Adresse des Modulanfangs von user32.dll (0x00700100) = 0x0070BD62
+26		0x00004CC0 + Adresse des Modulanfangs von user32.dll (0x00700100) = 0x00704DC0
+...
+
+Die GOT im Speicher enthält zu jeder Position der GOT im Modul-Header (von g) eine absolute Adresse, die auf das im Modul-Header angegebene Label zeigt.
+Da die Adressen der GOT im Speicher absolut sein müssen, muss zu den relativen Adressen der Funktionen innerhalb des Moduls (user32.dll) noch die Adresse des Modulanfangs (von user32.dll) addiert werden.
+Ruft nun Modul g eine der Funktionen CreateWindow, ShowWindow oder UpdateWindow auf, so wird in der GOT im Speicher nach der absoluten Adresse dieser Funktion gesucht und angesprungen.
+
+
+
+Aufgabe 2:
+
+
+Jedes Modul hat seine eigene GOT.
+
+GOT-Beschreibung im Modul-Header des Moduls von user32.dll (Position ist hier frei gewählt):
+
+Position	Name		Typ
+...
+41		"CreateHeap" 	Funktion
+42		"HeapAlloc"	Funktion
+...
+
+GOT im Speicher des importierenden Moduls (user32.dll):
+
+Position	Adresse
+...
+41		0x00006472 + Adresse des Modulanfangs von kernel32.dll (0x00900000) = 0x00906472
+42		0x00003438 + Adresse des Modulanfangs von kernel32.dll (0x00900000) = 0x00903438
+...
+
+Erzeugen eines Fensters:
+Im Hauptprogramm (Modul g) wird zunächst CreateWindow() aufgerufen, dazu wird in der GOT von g CreateWindow gesucht und die gefundene Adresse angesprungen.
+In der Funktion CreateWindow() wird HeapAlloc() aufgerufen, dazu wird in der GOT von user32.dll HeapAlloc gesucht und die gefundene Adresse angesprungen.
+Die Funktion CreateWindow liefert einen Rückgabewert vom Typ HWND, dieser Rückgabewert wird in hWnd gespeichert.
+Dann werden in g nacheinander die Funktionen ShowWindow und UpdateWindow aufgerufen, wobei als Parameter jedes Mal hWnd übergeben wird. Dazu werden jeweils in der GOT von g ShowWindow, bzW. UpdateWindow gesucht und die gefundenen Adressen angesprungen.
+
+
+
+Aufgabe 3:
+
+
+Beim ersten Aufruf einer Funktion mit einem lazy_binder wird zunächst die Adresse der Funktion ermittelt und in die GOT geschrieben.
+
+Für CreateWindow() bedeutet dies:
+Für das Modul g (Hauptprogramm), sowie für alle weiteren Module (user32.dll, kernel32.dll) wird jeweils zusätzlich eine Procedure Lookup Table erstellt.
+Beim ersten Aufruf der Funktion CreateWindow() erfolgt ein Sprung in die PLT von g, von dort aus wird die absolute Adresse von CreateWindow() berechnet und in die GOT von g kopiert, sowie die Adresse zum Ausführen der Funktion angesprungen. Bei einem weiteren Aufruf von CreateWindow() würde die absolute Adresse der Funktion sofort aus der GOT von g geladen.
+In CreateWindow() wird HeapAlloc() aufgerufen, dazu wird, weil es sich um den ersten Aufruf von HeapAlloc() handelt, die PLT von user32.dll bemüht und die Adresse von HeapAlloc() in die GOT vom Modul von user32.dll kopiert (bei einem zweiten Aufruf von HeapAlloc() würde die Adresse aus der GOT kopiert) und angesprungen.
+Wenn die Funktionen ausgeführt sind, das Programm bis in g zurückgesprungen ist, wird dort der Code weiter ausgeführt.
+
+PLT des Programms vor dem ersten Aufruf von CreateWindow():
+
+	|...				    |
+	|Label				    | Erster Aufruf von CreateWindow() landet hier
+  	|push FunktionsID		    | ID von CreateWindow() auf Stack legen
+	|jmp lazy_binder		    | Lazy-Binder aufrufen, dieser ermittelt Adresse von CreateWindow()
+	|...				    |	
+
+PLT des Programms nach dem ersten Aufruf von CreateWindow():
+(Vorherige Einträge weiterhin existent, aber nicht mehr von Bedeutung, da lazy-binder bereits die absolute Adresse von CreateWindow() in die GOT geschrieben hat.)
+	
+	|...    			    |
+	|Standard-Label f. CreateWindow()   | Eintrag in die PLT
+        |jmp GOT-Eintrag		    | In die GOT springen und Adresse von CreateWindow() holen
+	|...				    |
